@@ -1,0 +1,196 @@
+        # - Intro, Motivation :
+        # ---------------------
+        # We need to create a smooth transition at the leading edge, because we know that fluid codes (used to 
+        # calculate Lift/Drag) work much better (and sometimes they do not work at all, 
+        # as for exemple Xfoil, that uses a boundary element method) if the transition of 
+        # the normal vectors to the boundary as we approach the leading edge is not smooth.
+        # Structural codes do not pose the same issue. However, any code (structural or 
+        # fluid and for the fluid subcase: finite volume or boundary element)
+        # is happier without large differences of the angles of the grid(mesh, maillage)'s 
+        # boundary normal vectors. 
+        # 
+        # For the case of foils we have two regions that might pose this problem : either 
+        # (1) the leading edge or (2) the trailing edge. For the trailing edge this smoothing 
+        # is not required. Because, at that trailing edge we know  we know that the velocity from
+        # above (suction side) will have a small difference (but important) with the velocity 
+        # below (pressure side). For the leading edge we want to enforce actually the boundary 
+        # condition that the normal velocity to the wall (the foil) will be zero. Meaning that 
+        # the y-component of the velocity, (1) just above the leading edge, will be positive, and 
+        #                                  (2) just below the leading edge, will be negative
+        # what we call a shearing flow condition.
+        # 
+        # Therefore, if the angles at the leading edge are not smooth (and actually around 90 degrees), 
+        # we cannot enforce a physical boundary condition due to the errors of the non smooth geometric
+        # represention. But in reality we can have a non smooth transition as for exemple for the 
+        # case of the Wageningen foils. These foils have by construction, non smooth leading edges.
+        # 
+        # - Physical Modelling
+        # ---------------------
+        # From a physical point of view, the non-smooth leading edge forces a shearing flow condition.
+        # As explained for the case of the trailing edge, there is a small (but important) difference 
+        # between the velocity above and below. We quantify this velocity difference as the 
+        # vorticity, that escapes from the TE towards the wake. Therefore, if we have a sharp LE then
+        # the same condition applies and vorticity should be generated. But then the boundary element
+        # codes do not take into account these cases. Therefore, to rectify and be able to use a boundary
+        # element code, we shall require a smooth leading edge to obtain approximations for 
+        # small angles of attack. 
+        # 
+        # For that physical scenario (small angles of attack), we now know by physical observations, 
+        # that the vorticity shall not escape from the leading edge and remain at the flow AND inside 
+        # the boundary layer. The idea is that for large Reynolds numbers the boundary layer will be
+        # thin. Eventually the boundary layer meets the trailing edge. At that 
+        # point, the vorticity that is generated inside the boundary layer will move away from the foil 
+        # and escapes at the flow inside the region that we identify as the wake. 
+        # This vorticity (velocity jump above-below) caracterises completely the lift.
+        #   
+        # - Relation to propellers
+        # ------------------------ 
+        # For the propeller case the Wageningen blades have non smooth Leading Edges by construction.
+        # The construction caracteristic shall enforce a shearing flow that will not be taken into 
+        # account by boundary element codes. If we do the "Large Reynolds Number" hypothesis so that
+        # the above conditions apply and the physical Modelling becomes valid then we shall first 
+        # of all check if this hypothesis applies. The condition can be written as :
+        # 
+        #                       Re@foil_r > Re_crit@foil                    (1)
+        # 
+        # Which means that the Reynolds number at the foil at the radius r of the propeller should be larger 
+        # than the critical Reynolds number of any foil (see for exemple : Yousefi and Razengi (2018), 
+        # "Determination of the Critical Reynolds Number for Flow over Symmetric NACA Airfoils, AIAA
+        # - to be downloaded by the internet pdf website: research gate) which ranges from 1000 (1e3=1*10^3) to
+        # 200000 (2e5=2*10^5). From the published Wageningen data (see Wagening Theory, p. 81-84 i.e. p.41-43 pdf)
+        # we know that the provided Reynolds number are around this limit Re=200000.
+        # 
+        # 
+        # We will perform calculations based on xfoil to obtain the lift and drag for Wagening Foils.
+        # But Wagening foils are not smooth at the leading edge (the thickness is not zero). Therefore 
+        # we will slightly smooth the foils to perform calculations with xfoil.  
+        # 
+        # 
+        # 
+        # Leading Edge Smoothing
+        # ----------------------
+        # 
+        # The function smooth_at_LE_Weib uses two Weibull distributions as mollifiers to the 
+        # original thickness of the foil.
+        # This mollifier transforms the obtained (actual) points of the foil to the 
+        # points (x,y_new_suction) or (x,y_new_pressure) using the following formulas : 
+        #                
+        #    y_new_suction(x) =yc(x)+yt(x)*m(x)
+        #    y_new_pressure(x)=yc(x)-yt(x)*m(x)
+        # 
+        # where :(A) yc : is the (old) camber line that actually remains the same as the 
+        #                  (new) camber line (obtained by the above equations as : 
+        #
+        #                    y_new_c=(y_new_suction(x)+y_new_pressure(x))/2=...=yc
+        #       
+        # where :(B) yt : is the old thickness. The new now is slightly modified and it
+        #                 is calculated as: 
+        #        
+        #                    y_new_t=(y_new_suction(x)-y_new_pressure(x))/2=...=yt(x)*m(x)
+        #                 
+        #                 where m(x) is the mollifier(see below)
+        #               
+        #       :(C) m  : is the mollifier that corresponds to a smooth Heaviside step function.
+        #                 The above implies that the function is zero at x=0 and then moves 
+        #                 fast enough to 1. These type of functions are also named distributions.
+        #                 We can choose any distribution we want and it assures that the function
+        #                 y_new_t will also move fast enough at its original value, which is 
+        #                 yt. The region where the values will not agree is the (small) distance
+        #                 after x>0 say for example between [0,x1] where the function m moves from 
+        #                 zero to 1. Therefore m(x1)=1. The distance x1 is a parameter of our choice.
+        #                 Since we work with smooth functions the value of m (the mollifier) will 
+        #                 never be exactly one but rather, m(x1)=0.90 or m(x1)=0.95 or m(x1)=0.99. 
+        #                 The value of m at x1, depends on the choice of parameters of the mollifier 
+        #                 used (the Weibull distribution, see below).
+        # 
+        # In our case we will use a mollifier that corresponds to a Weibull distribution : m(x)=W(x;k,lambda). 
+        # 
+        # ----- Work to do
+        # Create some plots for the Weibull distribution W(x;k,lambda) (see for exemple Wikipedia) for different
+        # values of the parameters, k and lambda. We will use k<1.
+        # > Show that for k<1 we have :
+        #                                 dW |
+        #                                ----|    -> inf  
+        #                                 dx |x=0      
+        # -------- End of Work
+        # 
+        # Thus we have to use Weibull distribution with k<1 to construct a smooth Leading Edge because : 
+        # 
+        #                 d y_new_suction       dyc     dyt       dW   
+        #                 ---------------  =   ----- + -----*W + -----*yt   
+        #                      dx               dx      dx        dx    
+        # 
+        # As x->0 then :
+        #                d y_new_suction
+        #                ---------------  -> inf
+        #                     dx        
+        # 
+        # And therefore the tangent vector at our curve, which is defined as :
+        #                    _                        _
+        #          ->       |         d y_new_suction  |                  d y_new_suction
+        #          vt=      |  1    , ---------------  |  /  sqrt ( 1 + (--------------- )^2 )
+        #                   |_             dx         _|                       dx        
+        # 
+        # will be : 
+        #                     
+        #           ->       
+        # lim       vt  =   ... = (0,1)  which is exactly what we want 
+        #   x->0             
+        # 
+        # For our purpose we define lambda from a value of x, x=x0, (note 0<x<1) that is called 
+        # the smoothing length. Away from the smoothing length (x>>x0) we will have values of W
+        # near 1 and below the smoothing length we will have values of W small (thus a smooth function):
+        # For a given k we define the smoothing length x0 and require for lambda:  :
+        # 
+        #                                                               x0
+        #           W(x0;k,lambda)=0.95 => ... => lambda(x0,k) = -----------------
+        #                                                        (-ln(0.05))^(1/k)
+        #             
+        # ---- Work to do :
+        # Test the formulation for a simple problem with :
+        #         
+        #         yc=0, yt=(1-x)*0.45  
+        # 
+        # A. Create a figure and at the same figure : 
+        # 1. Plot the function yt(x)
+        # 2. Plot the function yt(x)*W(x;k,lambda(k,x0));
+        #        for different values of k=0.1, 0.5, 0.8  and smoothing length x0=0.1
+        #        
+        # B. Create a figure and at the same figure : 
+        # 1. Plot the function yt(x)
+        # 2. Plot the function yt(x)*W(x;k,lambda(k,x0));
+        #        for k=0.5 and smoothing lengths x0=0.05 x0=0.1 x=0.15
+        #        
+        # Write your observations eg. as k becomes smaller the smooth curve tends to ...
+        #                         eg. as x0 becomes smaller the curve tends to ...
+        # 
+        # ------ End of Work
+        # 
+        # 
+        # Calculations :
+        #   1. Create a Wageningen foil with thickness at the leading edge. 
+        #      These foils were originally constructed with trailing edge thickness equal to 
+        #   
+        #                 t/c= 0.2 tmax/c
+        #   
+        #      use the code test_WAGLIB.py to the demonstrate the foil's geometry for a certain
+        #      propeller. You may choose B4-70 (Z=4, EAR=0.7,r/R=0.75) with and without smoothing.
+        #      
+        #   2. For the two cases (with and without smoothing) try to start xfoil :
+        #       xfoil name_of_generated_point_file from the code : 
+        #                 
+        #                eg. type:
+        #                 xfoil B4_100_rR\=0.20_n60_spacecos.txt
+        #      
+        #      The name of your file will be different. 
+        #      When the Leading edge is not smooth then xfoil complains.
+        #      When you use linear spacing xfoil complains.
+        #      So we will use cosine spacing for xfoil.
+        #      
+        #   3. Change the spacing of xfoil to cosine (see code). 
+        #   
+        #   4. Using xfoil prepare the Lift and Drag polars vs angle of attack for the range of Reynolds
+        #      number you have found before at the Wagening Reference.
+        #     
+        #                                                
+        

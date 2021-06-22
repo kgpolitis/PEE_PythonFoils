@@ -1,0 +1,5 @@
+import NACA_LIB
+
+foil=NACA_LIB.Series4(4200)
+
+foil.show_parameters
